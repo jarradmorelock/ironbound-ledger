@@ -21,20 +21,6 @@ jobs:
       - name: Install deps
         run: python -m pip install --upgrade pip requests
 
-      # OPTIONAL: test BOTH channels (delete this whole step once you're confident)
-      - name: Test Discord webhooks
-        env:
-          DISCORD_WEBHOOK_WAIVERS: ${{ secrets.DISCORD_WEBHOOK_WAIVERS }}
-          DISCORD_WEBHOOK_TRADES: ${{ secrets.DISCORD_WEBHOOK_TRADES }}
-        run: |
-          curl -s -H "Content-Type: application/json" \
-            -d '{"content":"✅ Ironbound Ledger waivers webhook test (from GitHub Actions)"}' \
-            "$DISCORD_WEBHOOK_WAIVERS"
-
-          curl -s -H "Content-Type: application/json" \
-            -d '{"content":"✅ Ironbound Ledger trades webhook test (from GitHub Actions)"}' \
-            "$DISCORD_WEBHOOK_TRADES"
-
       - name: Run ledger
         env:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
