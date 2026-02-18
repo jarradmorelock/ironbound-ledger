@@ -81,6 +81,12 @@ def player_name_map() -> Dict[str, str]:
 def fmt_player(pid: str, pmap: Dict[str, str]) -> str:
     return pmap.get(pid, pid)
 
+def fmt_pick(p: dict, rmap: dict[int, str]) -> str:
+    season = p.get("season", "?")
+    rnd = p.get("round", "?")
+    orig = p.get("roster_id")  # "original" roster this pick belongs to
+    orig_txt = f" ({rmap.get(orig, f'Roster {orig}')} pick)" if orig is not None else ""
+    return f"{season} - Rd {rnd}{orig_txt}"
 
 def is_final_status(t: Dict[str, Any]) -> bool:
     status = (t.get("status") or "").lower()
@@ -171,14 +177,20 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         if dest is None:
             continue
         dest = int(dest)
-        received.setdefault(dest, []).append(f"{season} R{rnd} pick")
+
+        orig = pk.get("previous_owner_id")
+        try:
+            orig_i = int(orig) if orig is not None else None
+        except (TypeError, ValueError):
+            orig_i = None
+
+        orig_txt = f" (from {rmap.get(orig_i)})" if orig_i is not None and orig_i in rmap else ""
+        received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
 
     if not received or len(rosters) < 2:
         return None
 
-    ts = txn_ts(t)
-    lines: List[str] = [f"🤝 **Trade Receipt**"]
-
+    lines: List[str] = ["🤝 **Trade Receipt**"]
     for rid in [int(x) for x in rosters]:
         team = rmap.get(rid, f"Roster {rid}")
         rec = received.get(rid, [])
@@ -186,6 +198,7 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         lines.append(f"**{team} receives:** {rec_txt}")
 
     return lines
+
 
 
 def main():
