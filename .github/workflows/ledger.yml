@@ -32,7 +32,8 @@ jobs:
       - name: Run ledger
         env:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_WAIVERS: ${{ secrets.DISCORD_WEBHOOK_WAIVERS }}
+          DISCORD_WEBHOOK_TRADES: ${{ secrets.DISCORD_WEBHOOK_TRADES }}
         run: python ledger.py
 
       - name: Commit updated state.json (if changed)
