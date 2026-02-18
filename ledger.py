@@ -42,25 +42,24 @@ def fetch_transactions(round_num: int) -> List[Dict[str, Any]]:
     return _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/transactions/{round_num}")
 
 
-def roster_name_map() -> Dict[int, str]:
-    users = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/users")
-    rosters = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
+def roster_name_map():
+    rosters = get_json(f"{BASE}/league/{LEAGUE_ID}/rosters")
 
-    user_by_id = {u["user_id"]: u for u in users}
-    out: Dict[int, str] = {}
+    rmap = {}
+    user_to_rid = {}
 
     for r in rosters:
-        rid = int(r["roster_id"])
-        owner_id = r.get("owner_id")
-        name = f"Roster {rid}"
-        if owner_id and owner_id in user_by_id:
-            u = user_by_id[owner_id]
-            meta = u.get("metadata") or {}
-            name = meta.get("team_name") or u.get("display_name") or name
-        out[rid] = name
+        rid = r.get("roster_id")
+        oid = r.get("owner_id")
+        name = r.get("metadata", {}).get("team_name", f"Roster {rid}")
 
-    return out
+        if rid is not None:
+            rmap[int(rid)] = name
 
+        if oid is not None and rid is not None:
+            user_to_rid[int(oid)] = int(rid)
+
+    return rmap, user_to_rid
 
 def player_name_map() -> Dict[str, str]:
     players = _get("https://api.sleeper.app/v1/players/nfl")
@@ -159,7 +158,7 @@ def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[st
     return lines
 
 
-def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str, str]) -> Optional[List[str]]:
+def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str, str], user_to_rid: Dict[int, int]) -> Optional[List[str]]:
     adds = t.get("adds") or {}
     draft_picks = t.get("draft_picks") or []
     rosters = t.get("roster_ids") or t.get("consenter_roster_ids") or []
@@ -167,39 +166,51 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
     received: Dict[int, List[str]] = {}
 
     for pid, dest in adds.items():
-        dest = int(dest)
+        dest = resolve_rid(dest)
+        if dest is None:
+            continue
         received.setdefault(dest, []).append(fmt_player(pid, pmap))
+
+
+   def resolve_rid(val) -> Optional[int]:
+        if val is None:
+            return None
+        try:
+            x = int(val)
+        except (TypeError, ValueError):
+            return None
+        if x in rmap:                 # already a roster_id
+            return x
+        if x in user_to_rid:          # it’s a user_id
+            return user_to_rid[x]
+        return None
 
     for pk in draft_picks:
         season = pk.get("season")
         rnd = pk.get("round")
 
-    # destination can vary by transaction type
-        dest = pk.get("roster_id") or pk.get("owner_id")
+        dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
         if dest is None:
             continue
-        dest = int(dest)
 
-    # origin can vary too
-        orig = pk.get("previous_owner_id") or pk.get("previous_roster_id")
-        orig_txt = ""
-        if orig is not None:
-            try:
-                orig_i = int(orig)
-                orig_txt = f" (from {rmap.get(orig_i, f'Roster {orig_i}')})"
-            except (TypeError, ValueError):
-                pass
+        orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
+        orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
 
         received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
+
 
 
     if not received or len(rosters) < 2:
         return None
 
     lines: List[str] = ["🤝 **Trade Receipt**"]
-    for rid in [int(x) for x in rosters]:
+    for rid_val in rosters:
+        rid = resolve_rid(rid_val)
+        if rid is None:
+            continue
         team = rmap.get(rid, f"Roster {rid}")
         rec = received.get(rid, [])
+
         rec_txt = ", ".join(rec) if rec else "—"
         lines.append(f"**{team} receives:** {rec_txt}")
 
@@ -211,7 +222,7 @@ def main():
     state = load_state()
     last_seen = int(state.get("last_seen_ms", 0))
 
-    rmap = roster_name_map()
+    rmap, user_to_rid = roster_name_map()
     pmap = player_name_map()
 
     # Keep this window small; round 1 is clearly active for you right now.
@@ -255,7 +266,7 @@ def main():
                 waiver_lines.extend(block)
 
         elif ttype == "trade":
-            block = format_trade_receipt(t, rmap, pmap)
+            block = format_trade_receipt(t, rmap, pmap, user_to_rid)
             if block:
                 if trade_lines:
                     trade_lines.append("")
