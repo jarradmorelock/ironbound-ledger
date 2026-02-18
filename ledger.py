@@ -124,7 +124,7 @@ def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[st
         per[rid]["drops"].append(fmt_player(pid, pmap))
 
     ts = txn_ts(t)
-    lines: List[str] = [f"🧾 **Waiver Receipt**  <t:{ts//1000}:f>"]
+    lines: List[str] = [f"🧾 **Waiver Receipt**"]
 
     for rid in sorted(per.keys()):
         team = rmap.get(rid, f"Roster {rid}")
@@ -177,7 +177,7 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         return None
 
     ts = txn_ts(t)
-    lines: List[str] = [f"🤝 **Trade Receipt**  <t:{ts//1000}:f>"]
+    lines: List[str] = [f"🤝 **Trade Receipt**"]
 
     for rid in [int(x) for x in rosters]:
         team = rmap.get(rid, f"Roster {rid}")
