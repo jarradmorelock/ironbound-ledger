@@ -124,7 +124,7 @@ def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[st
         per[rid]["drops"].append(fmt_player(pid, pmap))
 
     ts = txn_ts(t)
-    lines: List[str] = [f"🧾 **Waiver Receipt**"]
+    lines: List[str] = [f"🧾 **Player Transaction**"]
 
     for rid in sorted(per.keys()):
         team = rmap.get(rid, f"Roster {rid}")
@@ -243,12 +243,10 @@ def main():
                 trade_lines.extend(block)
 
     if waiver_lines:
-        header = "🏈 **Ironbound Ledger** — waivers\n\n"
         for msg in chunk_lines(header, waiver_lines):
             post(WEBHOOK_WAIVERS, msg)
 
     if trade_lines:
-        header = "🏈 **Ironbound Ledger** — trades\n\n"
         for msg in chunk_lines(header, trade_lines):
             post(WEBHOOK_TRADES, msg)
 
