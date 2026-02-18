@@ -243,11 +243,11 @@ def main():
                 trade_lines.extend(block)
 
     if waiver_lines:
-        for msg in chunk_lines(header, waiver_lines):
+        for msg in chunk_lines("", waiver_lines):
             post(WEBHOOK_WAIVERS, msg)
 
     if trade_lines:
-        for msg in chunk_lines(header, trade_lines):
+        for msg in chunk_lines("", trade_lines):
             post(WEBHOOK_TRADES, msg)
 
 
