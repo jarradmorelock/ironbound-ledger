@@ -127,23 +127,23 @@ def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[st
     lines: List[str] = [f"🧾 **Waiver Receipt**  <t:{ts//1000}:f>"]
 
     for rid in sorted(per.keys()):
-    team = rmap.get(rid, f"Roster {rid}")
-    adds = per[rid]["adds"]
-    drops = per[rid]["drops"]
+        team = rmap.get(rid, f"Roster {rid}")
+        adds = per[rid]["adds"]
+        drops = per[rid]["drops"]
 
-    lines.append(f"**{team}**")
+        lines.append(f"**{team}**")
 
-    if adds:
-        lines.append("➕ **Adds:**")
-        for p in adds:
-            lines.append(p)
+        if adds:
+            lines.append("➕ **Adds:**")
+            for p in adds:
+                lines.append(p)
 
-    if drops:
-        lines.append("➖ **Drops:**")
-        for p in drops:
-            lines.append(p)
+        if drops:
+            lines.append("➖ **Drops:**")
+            for p in drops:
+                lines.append(p)
 
-    lines.append("")  # spacer
+        lines.append("")  # spacer
 
 
     # remove trailing blank spacer
