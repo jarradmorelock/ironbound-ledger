@@ -21,6 +21,14 @@ jobs:
       - name: Install deps
         run: python -m pip install --upgrade pip requests
 
+      - name: Test Discord webhook
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d '{"content":"✅ Ironbound Ledger webhook test (from GitHub Actions)"}' \
+            "$DISCORD_WEBHOOK_URL"
+
       - name: Run ledger
         env:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
