@@ -39,12 +39,18 @@ def league_season() -> str:
 def main():
     state = load_state()
 
-    season_used = os.environ.get("SLEEPER_SEASON") or league_season()
-    txs = fetch_transactions(season_used)
+    # Probe a small window of rounds; 0 is commonly used in offseason/preseason
+    rounds_to_check = [0, 1, 2, 3]
+    found = []
+    found_rounds = {}
+
+    for r in rounds_to_check:
+        txs = fetch_transactions(r)
+        found_rounds[r] = len(txs)
+        found.extend(txs)
 
     newest = state["last_seen_ms"]
-
-    for t in txs:
+    for t in found:
         ts = t.get("status_updated") or t.get("created") or 0
         newest = max(newest, int(ts))
 
@@ -52,11 +58,13 @@ def main():
     save_state(state)
 
     post(
-        f"✅ **Ironbound Ledger online**\n"
-        f"Season checked: {season_used}\n"
-        f"Transactions found: {len(txs)}\n"
+        "✅ **Ironbound Ledger online (round-based)**\n"
+        f"Rounds checked: {rounds_to_check}\n"
+        f"Counts: {found_rounds}\n"
+        f"Total transactions: {len(found)}\n"
         f"last_seen_ms set to: {newest}"
     )
+
 
 
 if __name__ == "__main__":
