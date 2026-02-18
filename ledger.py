@@ -171,8 +171,8 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         received.setdefault(dest, []).append(fmt_player(pid, pmap))
 
     for pk in draft_picks:
-    season = pk.get("season")
-    rnd = pk.get("round")
+        season = pk.get("season")
+        rnd = pk.get("round")
 
     # destination can vary by transaction type
     dest = pk.get("roster_id") or pk.get("owner_id")
@@ -182,8 +182,8 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
 
     # origin can vary too
     for pk in draft_picks:
-    season = pk.get("season")
-    rnd = pk.get("round")
+        season = pk.get("season")
+        rnd = pk.get("round")
 
     dest = pk.get("roster_id") or pk.get("owner_id")
     if dest is None:
