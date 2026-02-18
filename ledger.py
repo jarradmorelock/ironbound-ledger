@@ -32,14 +32,15 @@ def fetch_transactions(season):
         f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/transactions/{season}"
     )
 
+def league_season() -> str:
+    league = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}")
+    return str(league.get("season"))
+
 def main():
     state = load_state()
 
-    tx_2025 = fetch_transactions("2025")
-    tx_2026 = fetch_transactions("2026")
-
-    txs = tx_2026 if tx_2026 else tx_2025
-    season_used = "2026" if tx_2026 else "2025"
+    season_used = os.environ.get("SLEEPER_SEASON") or league_season()
+    txs = fetch_transactions(season_used)
 
     newest = state["last_seen_ms"]
 
@@ -56,6 +57,7 @@ def main():
         f"Transactions found: {len(txs)}\n"
         f"last_seen_ms set to: {newest}"
     )
+
 
 if __name__ == "__main__":
     main()
