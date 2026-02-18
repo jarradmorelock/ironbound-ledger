@@ -172,31 +172,31 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         received.setdefault(dest, []).append(fmt_player(pid, pmap))
 
 
-   def resolve_rid(val) -> Optional[int]:
-        if val is None:
-            return None
-        try:
-            x = int(val)
-        except (TypeError, ValueError):
-            return None
-        if x in rmap:                 # already a roster_id
-            return x
-        if x in user_to_rid:          # it’s a user_id
-            return user_to_rid[x]
-        return None
+    def resolve_rid(val) -> Optional[int]:
+         if val is None:
+             return None
+         try:
+             x = int(val)
+         except (TypeError, ValueError):
+             return None
+         if x in rmap:                 # already a roster_id
+             return x
+         if x in user_to_rid:          # it’s a user_id
+             return user_to_rid[x]
+         return None
 
-    for pk in draft_picks:
-        season = pk.get("season")
-        rnd = pk.get("round")
+     for pk in draft_picks:
+         season = pk.get("season")
+         rnd = pk.get("round")
 
-        dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
-        if dest is None:
+         dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
+         if dest is None:
             continue
 
-        orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
-        orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
+         orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
+         orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
 
-        received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
+         received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
 
 
 
