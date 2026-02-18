@@ -33,7 +33,6 @@ jobs:
         env:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SLEEPER_SEASON: "2026"
         run: python ledger.py
 
       - name: Commit updated state.json (if changed)
