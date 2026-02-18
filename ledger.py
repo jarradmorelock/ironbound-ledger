@@ -171,21 +171,35 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
         received.setdefault(dest, []).append(fmt_player(pid, pmap))
 
     for pk in draft_picks:
-        season = pk.get("season")
-        rnd = pk.get("round")
-        dest = pk.get("roster_id")
-        if dest is None:
-            continue
-        dest = int(dest)
+    season = pk.get("season")
+    rnd = pk.get("round")
 
-        orig = pk.get("previous_owner_id")
+    # destination can vary by transaction type
+    dest = pk.get("roster_id") or pk.get("owner_id")
+    if dest is None:
+        continue
+    dest = int(dest)
+
+    # origin can vary too
+    for pk in draft_picks:
+    season = pk.get("season")
+    rnd = pk.get("round")
+
+    dest = pk.get("roster_id") or pk.get("owner_id")
+    if dest is None:
+        continue
+    dest = int(dest)
+
+    orig = pk.get("previous_owner_id") or pk.get("previous_roster_id")
+    orig_txt = ""
+    if orig is not None:
         try:
-            orig_i = int(orig) if orig is not None else None
-        except (TypeError, ValueError):
-            orig_i = None
+            orig = int(orig)
+            orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})"
+        except ValueError:
+            pass
 
-        orig_txt = f" (from {rmap.get(orig_i)})" if orig_i is not None and orig_i in rmap else ""
-        received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
+    received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
 
     if not received or len(rosters) < 2:
         return None
