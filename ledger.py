@@ -184,9 +184,6 @@ def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[st
 
     return lines
 
-if ttype == "trade":
-    print("TRADE RAW:", json.dumps(t, indent=2)[:8000])
-
 def format_trade_receipt(
     t: Dict[str, Any],
     rmap: Dict[int, str],
