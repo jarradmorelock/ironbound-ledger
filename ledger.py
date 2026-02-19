@@ -196,23 +196,7 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
             orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
 
             received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
-
-    if not received or len(rosters) < 2:
-        return None
-
-    lines: List[str] = ["🤝 **Trade Receipt**"]
-    for rid_val in rosters:
-        rid = resolve_rid(rid_val)
-        if rid is None:
-            continue
-        team = rmap.get(rid, f"Roster {rid}")
-        rec = received.get(rid, [])
-        rec_txt = ", ".join(rec) if rec else "—"
-        lines.append(f"**{team} receives:** {rec_txt}")
-
-    return lines
-
-    
+      
         if not received or len(rosters) < 2:
             return None
 
