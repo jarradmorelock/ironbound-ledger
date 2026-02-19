@@ -223,11 +223,11 @@ def format_trade_receipt(
         season = pk.get("season", "?")
         rnd = pk.get("round", "?")
 
-        dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
+        dest = resolve_rid(pk.get("owner_id") or pk.get("roster_id"))
         if dest is None:
             continue
 
-        orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
+        orig = resolve_rid(pk.get("roster_id") or pk.get("previous_owner_id") or pk.get("previous_roster_id"))
         orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
 
         received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
