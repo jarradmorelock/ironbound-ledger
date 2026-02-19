@@ -211,7 +211,7 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
             rec_txt = ", ".join(rec) if rec else "—"
             lines.append(f"**{team} receives:** {rec_txt}")
 
-     return lines
+    return lines
 
 
 
