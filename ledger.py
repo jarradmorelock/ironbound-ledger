@@ -193,6 +193,7 @@ def format_trade_receipt(
     pmap: Dict[str, str],
     user_to_rid: Dict[int, int],
 ) -> Optional[List[str]]:
+
     adds = t.get("adds") or {}
     draft_picks = t.get("draft_picks") or []
     rosters = t.get("roster_ids") or t.get("consenter_roster_ids") or []
@@ -204,7 +205,7 @@ def format_trade_receipt(
             x = int(val)
         except (TypeError, ValueError):
             return None
-        # Sometimes fields are roster_id, sometimes user_id
+        # Some payloads give roster_id, some give user_id
         if x in rmap:
             return x
         if x in user_to_rid:
@@ -213,49 +214,50 @@ def format_trade_receipt(
 
     received: Dict[int, List[str]] = {}
 
-    # players (adds maps player_id -> roster_id)
-    for pid, dest_val in adds.items():
-        dest = resolve_rid(dest_val)
-        if dest is None:
+    # players
+    for pid, dest in adds.items():
+        rid = resolve_rid(dest)
+        if rid is None:
             continue
-        received.setdefault(dest, []).append(fmt_player(pid, pmap))
+        received.setdefault(rid, []).append(fmt_player(pid, pmap))
 
-    # draft picks
+    # picks
     for pk in draft_picks:
-        if not isinstance(pk, dict):
-            continue
-
         season = pk.get("season", "?")
         rnd = pk.get("round", "?")
 
-        # destination: can show up as roster_id OR owner_id depending on transaction flavor
         dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
         if dest is None:
             continue
 
-        # origin: varies too. try previous_* first, then fall back to whatever "original" field exists.
         orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
-        if orig is None:
-            # Some payloads only carry the “original owner” as different keys
-            orig = resolve_rid(pk.get("original_owner_id") or pk.get("original_roster_id"))
-
         orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
+
         received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
 
-    if not received or len(rosters) < 2:
+    # If Sleeper didn't include both rosters, still try to print what we have
+    roster_list: List[int] = []
+    for rv in rosters:
+        rid = resolve_rid(rv)
+        if rid is not None:
+            roster_list.append(rid)
+
+    # Fall back to keys we actually saw if roster_ids missing
+    if len(roster_list) < 2:
+        roster_list = sorted(received.keys())
+
+    if not received or len(roster_list) < 1:
         return None
 
     lines: List[str] = ["🤝 **Trade Receipt**"]
-    for rid_val in rosters:
-        rid = resolve_rid(rid_val)
-        if rid is None:
-            continue
+    for rid in roster_list:
         team = rmap.get(rid, f"Roster {rid}")
         rec = received.get(rid, [])
         rec_txt = ", ".join(rec) if rec else "—"
         lines.append(f"**{team} receives:** {rec_txt}")
 
     return lines
+
 
 def main():
     state = load_state()
