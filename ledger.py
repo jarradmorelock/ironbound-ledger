@@ -62,7 +62,7 @@ def roster_name_map() -> tuple[Dict[int, str], Dict[int, int]]:
 
         if oid is not None and rid is not None:
             user_to_rid[int(oid)] = int(rid)
-
+        print("ROSTERS SAMPLE:", rosters[:1])
     return rmap, user_to_rid
 
 
