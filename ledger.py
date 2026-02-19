@@ -42,23 +42,35 @@ def fetch_transactions(round_num: int) -> List[Dict[str, Any]]:
     return _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/transactions/{round_num}")
 
 
-def roster_name_map() -> tuple[Dict[int, str], Dict[int, int]]:
+from typing import Tuple
+
+def roster_name_map() -> Tuple[Dict[int, str], Dict[int, int]]:
     rosters = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
+
+    # Defensive: Sleeper should return a list, but don't assume
+    if not isinstance(rosters, list):
+        raise RuntimeError(f"Unexpected rosters payload: {type(rosters)} -> {rosters}")
 
     rmap: Dict[int, str] = {}
     user_to_rid: Dict[int, int] = {}
 
     for r in rosters:
+        if not isinstance(r, dict):
+            # handles None/null entries or other junk
+            continue
+
         rid = r.get("roster_id")
         oid = r.get("owner_id")
-        name = r.get("metadata", {}).get("team_name", f"Roster {rid}")
+        name = (r.get("metadata") or {}).get("team_name") or f"Roster {rid}"
 
         if rid is not None:
             rmap[int(rid)] = name
+
         if oid is not None and rid is not None:
             user_to_rid[int(oid)] = int(rid)
 
     return rmap, user_to_rid
+
 
 
 def player_name_map() -> Dict[str, str]:
