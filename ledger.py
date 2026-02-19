@@ -171,35 +171,48 @@ def format_trade_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str
             continue
         received.setdefault(dest, []).append(fmt_player(pid, pmap))
 
+        def resolve_rid(val) -> Optional[int]:
+            if val is None:
+                return None
+            try:
+                x = int(val)
+            except (TypeError, ValueError):
+                return None
+            if x in rmap:          # already a roster_id
+                return x
+            if x in user_to_rid:   # it's a user_id
+                return user_to_rid[x]
+            return None
 
-    def resolve_rid(val) -> Optional[int]:
-         if val is None:
-             return None
-         try:
-             x = int(val)
-         except (TypeError, ValueError):
-             return None
-         if x in rmap:                 # already a roster_id
-             return x
-         if x in user_to_rid:          # it’s a user_id
-             return user_to_rid[x]
-         return None
+        for pk in draft_picks:
+            season = pk.get("season")
+            rnd = pk.get("round")
 
-     for pk in draft_picks:
-         season = pk.get("season")
-         rnd = pk.get("round")
+            dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
+            if dest is None:
+                continue
 
-         dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
-         if dest is None:
+            orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
+            orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
+
+            received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
+
+    if not received or len(rosters) < 2:
+        return None
+
+    lines: List[str] = ["🤝 **Trade Receipt**"]
+    for rid_val in rosters:
+        rid = resolve_rid(rid_val)
+        if rid is None:
             continue
+        team = rmap.get(rid, f"Roster {rid}")
+        rec = received.get(rid, [])
+        rec_txt = ", ".join(rec) if rec else "—"
+        lines.append(f"**{team} receives:** {rec_txt}")
 
-         orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
-         orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
+    return lines
 
-         received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
-
-
-
+    
      if not received or len(rosters) < 2:
          return None
 
