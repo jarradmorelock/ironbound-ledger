@@ -37,34 +37,44 @@ def save_state(state: Dict[str, Any]) -> None:
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, sort_keys=True)
 
+def user_name_map() -> Dict[str, str]:
+    users = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/users")
+    out: Dict[str, str] = {}
+    for u in users:
+        uid = u.get("user_id")
+        if not uid:
+            continue
+        # prefer team name if they set one; fallback to display_name
+        md = u.get("metadata") or {}
+        name = md.get("team_name") or u.get("display_name") or f"User {uid}"
+        out[str(uid)] = name
+    return out
 
 def fetch_transactions(round_num: int) -> List[Dict[str, Any]]:
     return _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/transactions/{round_num}")
 
-def roster_name_map() -> tuple[Dict[int, str], Dict[int, int]]:
+def roster_name_map():
     rosters = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
+    umap = user_name_map()
 
     rmap: Dict[int, str] = {}
     user_to_rid: Dict[int, int] = {}
 
     for r in rosters:
-        if not isinstance(r, dict):
-            continue
-
         rid = r.get("roster_id")
         oid = r.get("owner_id")
 
-        md = r.get("metadata") or {}
-        name = md.get("team_name") or md.get("name") or f"Roster {rid}"
+        if rid is None:
+            continue
 
-        if rid is not None:
-            rmap[int(rid)] = name
+        # name comes from users endpoint, because roster.metadata is None in your league
+        name = umap.get(str(oid), f"Roster {rid}") if oid is not None else f"Roster {rid}"
+        rmap[int(rid)] = name
 
-        if oid is not None and rid is not None:
+        if oid is not None:
             user_to_rid[int(oid)] = int(rid)
-        print("ROSTERS SAMPLE:", rosters[:1])
-    return rmap, user_to_rid
 
+    return rmap, user_to_rid
 
 def player_name_map() -> Dict[str, str]:
     players = _get("https://api.sleeper.app/v1/players/nfl")
