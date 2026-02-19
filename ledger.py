@@ -41,27 +41,29 @@ def save_state(state: Dict[str, Any]) -> None:
 def fetch_transactions(round_num: int) -> List[Dict[str, Any]]:
     return _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/transactions/{round_num}")
 
-
-def roster_name_map():
+def roster_name_map() -> tuple[Dict[int, str], Dict[int, int]]:
     rosters = _get(f"https://api.sleeper.app/v1/league/{LEAGUE_ID}/rosters")
 
     rmap: Dict[int, str] = {}
     user_to_rid: Dict[int, int] = {}
 
     for r in rosters:
+        if not isinstance(r, dict):
+            continue
+
         rid = r.get("roster_id")
         oid = r.get("owner_id")
-        meta = r.get("metadata") or {}
-        name = meta.get("team_name") or f"Roster {rid}"
+
+        md = r.get("metadata") or {}
+        name = md.get("team_name") or md.get("name") or f"Roster {rid}"
 
         if rid is not None:
             rmap[int(rid)] = name
+
         if oid is not None and rid is not None:
             user_to_rid[int(oid)] = int(rid)
 
     return rmap, user_to_rid
-
-
 
 
 def player_name_map() -> Dict[str, str]:
@@ -176,47 +178,56 @@ def format_trade_receipt(
     t: Dict[str, Any],
     rmap: Dict[int, str],
     pmap: Dict[str, str],
-    user_to_rid: Dict[int, int]
+    user_to_rid: Dict[int, int],
 ) -> Optional[List[str]]:
     adds = t.get("adds") or {}
     draft_picks = t.get("draft_picks") or []
     rosters = t.get("roster_ids") or t.get("consenter_roster_ids") or []
 
-    def resolve_rid(val) -> Optional[int]:
+    def resolve_rid(val: Any) -> Optional[int]:
         if val is None:
             return None
         try:
             x = int(val)
         except (TypeError, ValueError):
             return None
-        if x in rmap:            # already roster_id
+        # Sometimes fields are roster_id, sometimes user_id
+        if x in rmap:
             return x
-        if x in user_to_rid:     # it's owner_id
+        if x in user_to_rid:
             return user_to_rid[x]
         return None
 
     received: Dict[int, List[str]] = {}
 
-    # players moved
-    for pid, dest in adds.items():
-        dest_rid = resolve_rid(dest)
-        if dest_rid is None:
+    # players (adds maps player_id -> roster_id)
+    for pid, dest_val in adds.items():
+        dest = resolve_rid(dest_val)
+        if dest is None:
             continue
-        received.setdefault(dest_rid, []).append(fmt_player(pid, pmap))
+        received.setdefault(dest, []).append(fmt_player(pid, pmap))
 
-    # picks moved
+    # draft picks
     for pk in draft_picks:
-        season = pk.get("season")
-        rnd = pk.get("round")
-
-        dest_rid = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
-        if dest_rid is None:
+        if not isinstance(pk, dict):
             continue
 
-        orig_rid = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
-        orig_txt = f" (from {rmap.get(orig_rid, f'Roster {orig_rid}')})" if orig_rid is not None else ""
+        season = pk.get("season", "?")
+        rnd = pk.get("round", "?")
 
-        received.setdefault(dest_rid, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
+        # destination: can show up as roster_id OR owner_id depending on transaction flavor
+        dest = resolve_rid(pk.get("roster_id") or pk.get("owner_id"))
+        if dest is None:
+            continue
+
+        # origin: varies too. try previous_* first, then fall back to whatever "original" field exists.
+        orig = resolve_rid(pk.get("previous_roster_id") or pk.get("previous_owner_id"))
+        if orig is None:
+            # Some payloads only carry the “original owner” as different keys
+            orig = resolve_rid(pk.get("original_owner_id") or pk.get("original_roster_id"))
+
+        orig_txt = f" (from {rmap.get(orig, f'Roster {orig}')})" if orig is not None else ""
+        received.setdefault(dest, []).append(f"{season} Rd {rnd} Pick{orig_txt}")
 
     if not received or len(rosters) < 2:
         return None
