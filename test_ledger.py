@@ -62,6 +62,24 @@ class LedgerTests(unittest.TestCase):
                 self.assertEqual(post.call_count, 1)
                 saved = ledger.load_state()
                 self.assertEqual(saved["last_seen_ms"], 110)
+    def test_trade_queue_not_blocked_by_waivers(self):
+        root = {"last_seen_ms": 100, "seen_at_last_ms": ["waiver-old"]}
+        trades, waivers, trade_state = ledger.pending_by_channel(
+            [tx("trade1", 110), tx("waiver1", 101, kind="waiver"),
+             tx("trade2", 115)], root,
+        )
+        self.assertEqual(len(trades), 2)
+        self.assertEqual(len(waivers), 1)
+        self.assertIs(trade_state, root["trade_state"])
+
+    def test_long_receipts_are_lossless(self):
+        lines = ["Long name " + str(i) + ("x" * 320) for i in range(12)]
+        messages = ledger.chunk_lines("HEADER", lines)
+        self.assertGreater(len(messages), 1)
+        self.assertTrue(all(len(message) <= 1800 for message in messages))
+        combined = "\\n".join(messages)
+        for line in lines:
+            self.assertIn(line, combined)
 
 
 if __name__ == "__main__":
