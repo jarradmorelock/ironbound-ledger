@@ -21,9 +21,9 @@ def _get(url: str) -> Any:
 
 
 def post(webhook: str, msg: str) -> None:
-    # Discord hard limit is 2000 chars
-    if len(msg) > 1950:
-        msg = msg[:1950] + "…"
+    """Never silently discard receipt content when a message is too long."""
+    if len(msg) > 1900:
+        raise ValueError(f"Unsafely long Discord message: {len(msg)} characters")
     r = requests.post(webhook, json={"content": msg}, timeout=30)
     r.raise_for_status()
 
@@ -181,18 +181,26 @@ def acknowledge_transaction(state: Dict[str, Any], t: Dict[str, Any]) -> None:
 
 
 def chunk_lines(header: str, lines: List[str]) -> List[str]:
-    msgs = []
-    cur = header
-    for line in lines:
-        if len(cur) + len(line) + 1 > 1900:
-            msgs.append(cur)
-            cur = header + line + "\n"
-        else:
-            cur += line + "\n"
-    if cur.strip() != header.strip():
-        msgs.append(cur)
-    return msgs
+    """Losslessly split long receipts into Discord-safe chunks.
 
+    Split on line boundaries when possible, then spaces; an individual
+    overlong line is split at the limit rather than silently truncated.
+    """
+    max_chars = 1800
+    remaining = (header + "\n".join(lines)).strip()
+    output: List[str] = []
+    while remaining:
+        if len(remaining) <= max_chars:
+            output.append(remaining)
+            break
+        cut = remaining.rfind("\n", 0, max_chars + 1)
+        if cut <= 0:
+            cut = remaining.rfind(" ", 0, max_chars + 1)
+        if cut <= 0:
+            cut = max_chars
+        output.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip("\n ")
+    return output
 
 def format_waiver_receipt(t: Dict[str, Any], rmap: Dict[int, str], pmap: Dict[str, str]) -> Optional[List[str]]:
     adds = t.get("adds") or {}
@@ -320,6 +328,7 @@ def publish_transactions(
     pmap: Dict[str, str],
     user_to_rid: Dict[int, int],
     limit: int = 8,
+    root_state: Optional[Dict[str, Any]] = None,
 ) -> int:
     """Post a bounded chronological batch, checkpointing each successful receipt.
 
@@ -346,9 +355,36 @@ def publish_transactions(
                   f"transaction {transaction_key(t)}; advancing checkpoint")
 
         acknowledge_transaction(state, t)
-        save_state(state)
+        save_state(root_state if root_state is not None else state)
         published += 1
     return published
+
+
+def pending_by_channel(
+    transactions: List[Dict[str, Any]], root_state: Dict[str, Any]
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+    """Separate trade and waiver watermarks so waivers cannot starve trades.
+
+    On migration, the old cursor is the chronological checkpoint from
+    the original combined queue: transactions at or before it have
+    already been processed. Future runs track each channel separately.
+    """
+    trade_state = root_state.setdefault("trade_state", {
+        "last_seen_ms": int(root_state.get("last_seen_ms", 0)),
+        "seen_at_last_ms": [],
+    })
+    trade_txs = [
+        t for t in transactions if (t.get("type") or "").lower() == "trade"
+    ]
+    waiver_txs = [
+        t for t in transactions
+        if (t.get("type") or "").lower() in ("waiver", "free_agent", "add_drop")
+    ]
+    return (
+        new_final_transactions(trade_txs, trade_state),
+        new_final_transactions(waiver_txs, root_state),
+        trade_state,
+    )
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -359,11 +395,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     parser.add_argument(
         "--batch-limit", type=int, default=8,
-        help="Maximum number of transactions to publish per run (default: 8)",
+        help="Maximum waiver transactions per run (default: 8)",
+    )
+    parser.add_argument(
+        "--trade-limit", type=int, default=12,
+        help="Maximum trades per run, independently of waivers (default: 12)",
     )
     args = parser.parse_args(argv)
-    if args.batch_limit < 1:
-        parser.error("--batch-limit must be at least 1")
+    if args.batch_limit < 1 or args.trade_limit < 1:
+        parser.error("Batch limits must be at least 1")
 
     state = load_state()
     rmap, user_to_rid = roster_name_map()
@@ -374,29 +414,33 @@ def main(argv: Optional[List[str]] = None) -> None:
     for round_num in rounds_to_check:
         all_txs.extend(fetch_transactions(round_num))
 
-    pending = new_final_transactions(all_txs, state)
-    trades = sum((t.get("type") or "").lower() == "trade" for t in pending)
+    pending_trades, pending_waivers, trade_state = pending_by_channel(all_txs, state)
     print(
-        f"Checked Sleeper rounds {rounds_to_check[0]}-"
-        f"{rounds_to_check[-1]}; {len(pending)} unreported final "
-        f"transactions ({trades} trades)."
+        f"Checked Sleeper rounds {rounds_to_check[0]}-{rounds_to_check[-1]}; "
+        f"{len(pending_trades)} pending trades; "
+        f"{len(pending_waivers)} pending player transactions."
     )
     if args.preview:
-        for t in pending:
-            if (t.get("type") or "").lower() == "trade":
-                block = format_trade_receipt(t, rmap, pmap, user_to_rid)
-                if block:
-                    print(f"Transaction {transaction_key(t)} at {txn_ts(t)}:")
-                    print("\n".join(block))
+        for t in pending_trades:
+            block = format_trade_receipt(t, rmap, pmap, user_to_rid)
+            if block:
+                print(f"Transaction {transaction_key(t)} at {txn_ts(t)}:")
+                print("\n".join(block))
         print("PREVIEW ONLY: Discord and state.json were not changed.")
         return
 
-    count = publish_transactions(
-        pending, state, rmap, pmap, user_to_rid, limit=args.batch_limit
+    trade_count = publish_transactions(
+        pending_trades, trade_state, rmap, pmap, user_to_rid,
+        limit=args.trade_limit, root_state=state,
     )
-    print(f"Published/acknowledged {count} transaction(s). "
-          f"{len(pending) - count} remain for later runs.")
-
+    waiver_count = publish_transactions(
+        pending_waivers, state, rmap, pmap, user_to_rid,
+        limit=args.batch_limit, root_state=state,
+    )
+    print(f"Published {trade_count} trade(s) and {waiver_count} "
+          f"player transaction(s). Remaining: "
+          f"{len(pending_trades) - trade_count} trades; "
+          f"{len(pending_waivers) - waiver_count} player transactions.")
 
 if __name__ == "__main__":
     main()
