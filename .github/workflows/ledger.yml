@@ -4,7 +4,16 @@ on:
   schedule:
     - cron: "*/10 * * * *"     # every 10 minutes
     - cron: "10 16 * * *"      # daily at 11:10 AM EST (winter)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preview missing receipts, or publish a bounded catch-up batch"
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - publish
 
 permissions:
   contents: write
@@ -27,7 +36,12 @@ jobs:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
           DISCORD_WEBHOOK_WAIVERS: ${{ secrets.DISCORD_WEBHOOK_WAIVERS }}
           DISCORD_WEBHOOK_TRADES: ${{ secrets.DISCORD_WEBHOOK_TRADES }}
-        run: python ledger.py
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "preview" ]; then
+            python ledger.py --preview
+          else
+            python ledger.py --batch-limit 8
+          fi
 
       - name: Commit updated state.json (if changed)
         run: |

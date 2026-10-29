@@ -1,3 +1,5 @@
+import argparse
+import hashlib
 import json
 import os
 from typing import Dict, Any, List, Optional
@@ -121,6 +123,61 @@ def is_final_status(t: Dict[str, Any]) -> bool:
 
 def txn_ts(t: Dict[str, Any]) -> int:
     return int(t.get("status_updated") or t.get("created") or 0)
+
+
+def transaction_key(t: Dict[str, Any]) -> str:
+    """Stable identity across repeated and overlapping Sleeper round responses."""
+    key = t.get("transaction_id") or t.get("id")
+    if key is not None:
+        return str(key)
+    payload = json.dumps(t, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def automatic_transaction_rounds() -> List[int]:
+    """Include the historical gap and current week, plus the upcoming round.
+
+    Unlike a rolling two-week window, this can recover transactions missed
+    while the original reporter was stuck on rounds 0-3.
+    """
+    nfl_state = _get("https://api.sleeper.app/v1/state/nfl")
+    try:
+        week = int(nfl_state.get("leg") or nfl_state.get("week") or 1)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise RuntimeError("Sleeper NFL state has no usable week") from exc
+    if week < 1:
+        week = 1
+    return list(range(0, min(18, week + 1) + 1))
+
+
+def new_final_transactions(
+    transactions: List[Dict[str, Any]], state: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    last_seen = int(state.get("last_seen_ms", 0))
+    seen_at_last = {str(x) for x in state.get("seen_at_last_ms", [])}
+    unique = {
+        transaction_key(t): t for t in transactions if is_final_status(t)
+    }
+    selected = [
+        t for key, t in unique.items()
+        if txn_ts(t) > last_seen
+        or (txn_ts(t) == last_seen and key not in seen_at_last)
+    ]
+    return sorted(selected, key=lambda t: (txn_ts(t), transaction_key(t)))
+
+
+def acknowledge_transaction(state: Dict[str, Any], t: Dict[str, Any]) -> None:
+    """Advance only after the receipt was sent successfully."""
+    ts = txn_ts(t)
+    prior = int(state.get("last_seen_ms", 0))
+    key = transaction_key(t)
+    if ts > prior:
+        state["last_seen_ms"] = ts
+        state["seen_at_last_ms"] = [key]
+    elif ts == prior:
+        state["seen_at_last_ms"] = sorted(
+            set(str(x) for x in state.get("seen_at_last_ms", [])) | {key}
+        )
 
 
 def chunk_lines(header: str, lines: List[str]) -> List[str]:
@@ -256,67 +313,89 @@ def format_trade_receipt(
     return lines
 
 
-def main():
-    state = load_state()
-    last_seen = int(state.get("last_seen_ms", 0))
+def publish_transactions(
+    pending: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    rmap: Dict[int, str],
+    pmap: Dict[str, str],
+    user_to_rid: Dict[int, int],
+    limit: int = 8,
+) -> int:
+    """Post a bounded chronological batch, checkpointing each successful receipt.
 
+    The bounded batch prevents a month of transactions from flooding Discord
+    in a single run. Subsequent scheduled runs continue from the checkpoint.
+    """
+    published = 0
+    for t in pending[:limit]:
+        ttype = (t.get("type") or "").lower()
+        block = None
+        webhook = None
+        if ttype in ("waiver", "free_agent", "add_drop"):
+            block = format_waiver_receipt(t, rmap, pmap)
+            webhook = WEBHOOK_WAIVERS
+        elif ttype == "trade":
+            block = format_trade_receipt(t, rmap, pmap, user_to_rid)
+            webhook = WEBHOOK_TRADES
+
+        if block and webhook:
+            for msg in chunk_lines("", block):
+                post(webhook, msg)
+        else:
+            print(f"No renderable receipt for {ttype or 'unknown'} "
+                  f"transaction {transaction_key(t)}; advancing checkpoint")
+
+        acknowledge_transaction(state, t)
+        save_state(state)
+        published += 1
+    return published
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = argparse.ArgumentParser(description="Ironbound Sleeper transaction ledger")
+    parser.add_argument(
+        "--preview", action="store_true",
+        help="List pending transactions without Discord posting or state updates",
+    )
+    parser.add_argument(
+        "--batch-limit", type=int, default=8,
+        help="Maximum number of transactions to publish per run (default: 8)",
+    )
+    args = parser.parse_args(argv)
+    if args.batch_limit < 1:
+        parser.error("--batch-limit must be at least 1")
+
+    state = load_state()
     rmap, user_to_rid = roster_name_map()
     pmap = player_name_map()
 
-    # Keep this window small; round 1 is clearly active for you right now.
-    rounds_to_check = [0, 1, 2, 3]
-
+    rounds_to_check = automatic_transaction_rounds()
     all_txs: List[Dict[str, Any]] = []
-    for r in rounds_to_check:
-        all_txs.extend(fetch_transactions(r))
+    for round_num in rounds_to_check:
+        all_txs.extend(fetch_transactions(round_num))
 
-    # Only new + final
-    new_txs = []
-    newest = last_seen
-
-    for t in all_txs:
-        ts = txn_ts(t)
-        newest = max(newest, ts)
-        if ts > last_seen and is_final_status(t):
-            new_txs.append(t)
-
-    # Advance state first (prevents replay if message posting fails mid-run)
-    if newest > last_seen:
-        state["last_seen_ms"] = newest
-        save_state(state)
-
-    if not new_txs:
+    pending = new_final_transactions(all_txs, state)
+    trades = sum((t.get("type") or "").lower() == "trade" for t in pending)
+    print(
+        f"Checked Sleeper rounds {rounds_to_check[0]}-"
+        f"{rounds_to_check[-1]}; {len(pending)} unreported final "
+        f"transactions ({trades} trades)."
+    )
+    if args.preview:
+        for t in pending:
+            if (t.get("type") or "").lower() == "trade":
+                block = format_trade_receipt(t, rmap, pmap, user_to_rid)
+                if block:
+                    print(f"Transaction {transaction_key(t)} at {txn_ts(t)}:")
+                    print("\n".join(block))
+        print("PREVIEW ONLY: Discord and state.json were not changed.")
         return
 
-    new_txs.sort(key=txn_ts)
-
-    waiver_lines: List[str] = []
-    trade_lines: List[str] = []
-
-    for t in new_txs:
-        ttype = (t.get("type") or "").lower()
-
-        if ttype in ("waiver", "free_agent", "add_drop"):
-            block = format_waiver_receipt(t, rmap, pmap)
-            if block:
-                if waiver_lines:
-                    waiver_lines.append("")  # spacer between receipts
-                waiver_lines.extend(block)
-
-        elif ttype == "trade":
-            block = format_trade_receipt(t, rmap, pmap, user_to_rid)
-            if block:
-                if trade_lines:
-                    trade_lines.append("")
-                trade_lines.extend(block)
-
-    if waiver_lines:
-        for msg in chunk_lines("", waiver_lines):
-            post(WEBHOOK_WAIVERS, msg)
-
-    if trade_lines:
-        for msg in chunk_lines("", trade_lines):
-            post(WEBHOOK_TRADES, msg)
+    count = publish_transactions(
+        pending, state, rmap, pmap, user_to_rid, limit=args.batch_limit
+    )
+    print(f"Published/acknowledged {count} transaction(s). "
+          f"{len(pending) - count} remain for later runs.")
 
 
 if __name__ == "__main__":
