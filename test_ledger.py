@@ -62,6 +62,31 @@ class LedgerTests(unittest.TestCase):
                 self.assertEqual(post.call_count, 1)
                 saved = ledger.load_state()
                 self.assertEqual(saved["last_seen_ms"], 110)
+    def test_tribunal_handoff_skips_trade_post_but_keeps_trade_checkpoint_and_waivers(self):
+        state = {"last_seen_ms": 0}
+        trade_state = {"last_seen_ms": 0}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(ledger, "STATE_FILE", str(Path(directory) / "state.json")):
+                with patch.object(ledger, "TRADE_DISCORD_ENABLED", False):
+                    with patch.object(ledger, "post") as post:
+                        result = ledger.publish_transactions(
+                            [tx("t1", 110)], trade_state, {1: "A", 2: "B"},
+                            {"player": "Player"}, {}, limit=8, root_state=state
+                        )
+                        self.assertEqual(result, 1)
+                        self.assertEqual(trade_state["last_seen_ms"], 110)
+                        post.assert_not_called()
+                        self.assertEqual(ledger.load_state()["last_seen_ms"], 0)
+
+                        waiver_count = ledger.publish_transactions(
+                            [tx("w1", 120, kind="waiver")], state,
+                            {1: "A", 2: "B"}, {"player": "Player"}, {},
+                            limit=8, root_state=state
+                        )
+                        self.assertEqual(waiver_count, 1)
+                        post.assert_called_once()
+                        self.assertEqual(ledger.load_state()["last_seen_ms"], 120)
+
     def test_trade_queue_not_blocked_by_waivers(self):
         root = {"last_seen_ms": 100, "seen_at_last_ms": ["waiver-old"]}
         trades, waivers, trade_state = ledger.pending_by_channel(

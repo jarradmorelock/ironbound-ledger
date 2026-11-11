@@ -43,6 +43,7 @@ jobs:
           SLEEPER_LEAGUE_ID: ${{ secrets.SLEEPER_LEAGUE_ID }}
           DISCORD_WEBHOOK_WAIVERS: ${{ secrets.DISCORD_WEBHOOK_WAIVERS }}
           DISCORD_WEBHOOK_TRADES: ${{ secrets.DISCORD_WEBHOOK_TRADES }}
+          TRADE_DISCORD_ENABLED: "false"
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "preview" ]; then
             python ledger.py --preview
