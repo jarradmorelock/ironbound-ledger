@@ -9,6 +9,9 @@ import requests
 LEAGUE_ID = os.environ["SLEEPER_LEAGUE_ID"]
 WEBHOOK_WAIVERS = os.environ["DISCORD_WEBHOOK_WAIVERS"]
 WEBHOOK_TRADES = os.environ["DISCORD_WEBHOOK_TRADES"]
+# Explicit routing switch: the Tribunal becomes the only public trade publisher.
+# Keep the webhook secret for rollback, and keep acknowledging ledger trades.
+TRADE_DISCORD_ENABLED = os.environ.get("TRADE_DISCORD_ENABLED", "true").lower() == "true"
 
 STATE_FILE = "state.json"
 USER_AGENT = "ironbound-ledger-bot/1.0"
@@ -344,8 +347,13 @@ def publish_transactions(
             block = format_waiver_receipt(t, rmap, pmap)
             webhook = WEBHOOK_WAIVERS
         elif ttype == "trade":
-            block = format_trade_receipt(t, rmap, pmap, user_to_rid)
-            webhook = WEBHOOK_TRADES
+            if TRADE_DISCORD_ENABLED:
+                block = format_trade_receipt(t, rmap, pmap, user_to_rid)
+                webhook = WEBHOOK_TRADES
+            else:
+                # Explicit intentional skip, not a webhook failure.
+                # The checkpoint still advances and waivers continue normally.
+                print(f"Trade {transaction_key(t)} delegated to the Trade Tribunal.")
 
         if block and webhook:
             for msg in chunk_lines("", block):
